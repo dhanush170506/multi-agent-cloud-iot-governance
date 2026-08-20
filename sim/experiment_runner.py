@@ -27,9 +27,9 @@ SEED = 42
 NUM_TICKS = 200
 
 
-def _score_actions(actions, twin_state):
+def _score_actions(actions, twin_state, resource_state):
     U_R_list = [
-        score_resource(action, twin_state)
+        score_resource(action, resource_state)
         for action in actions
     ]
     U_S_list = [
@@ -60,8 +60,9 @@ def _run_strategy(strategy, threat_schedule):
             inject_threat(twin, device.id, severity)
 
         twin_state = generate_telemetry(twin)
+        resource_state = twin.get_state()
         actions = generate_candidate_actions(twin)
-        U_R_list, U_S_list, U_C_list = _score_actions(actions, twin_state)
+        U_R_list, U_S_list, U_C_list = _score_actions(actions, twin_state, resource_state)
         tss = compute_threat_severity(twin_state)
 
         if strategy == "TAPNA":

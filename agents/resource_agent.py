@@ -20,7 +20,10 @@ def _get_resource_predictor() -> ResourcePredictor:
 def _metric(twin_state: dict, average_key: str, raw_key: str) -> float:
     if average_key in twin_state:
         return float(twin_state[average_key])
-    return float(twin_state[raw_key])
+    value = twin_state[raw_key]
+    if hasattr(value, "mean"):
+        return float(value.mean())
+    return float(value)
 
 
 def _predicted_telemetry(action: dict, twin_state: dict) -> pd.DataFrame:
