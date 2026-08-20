@@ -32,6 +32,7 @@ def main():
             inject_threat(twin, device.id, severity)
 
         telemetry = generate_telemetry(twin)
+        telemetry["avg_memory_load"] = float(twin.get_state()["memory_load"].mean())
         candidate_actions = generate_candidate_actions(twin)
         twin_state = telemetry
 
