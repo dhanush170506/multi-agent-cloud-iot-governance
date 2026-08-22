@@ -5,7 +5,6 @@ import sys
 
 sys.dont_write_bytecode = True
 
-import numpy as np
 import pandas as pd
 
 if __package__ is None or __package__ == "":
@@ -14,63 +13,67 @@ if __package__ is None or __package__ == "":
 from ai_models.security.threat_detector import ThreatDetector
 
 
-def generate_normal_telemetry(samples: int = 1000) -> pd.DataFrame:
-    rng = np.random.default_rng(42)
-    return pd.DataFrame(
-        {
-            "cpu_load": rng.uniform(0.2, 0.7, samples),
-            "network_load": rng.uniform(0.1, 0.6, samples),
-            "trust_score": rng.uniform(0.7, 1.0, samples),
-            "connection_rate": rng.uniform(0.1, 0.5, samples),
-        }
-    )
+FEATURES = [
+    "rst_count",
+    "ICMP",
+    "Min",
+    "AVG",
+    "IAT",
+    "Number",
+    "Variance",
+    "Weight",
+]
 
 
-def generate_attack_telemetry(samples: int = 200) -> pd.DataFrame:
-    rng = np.random.default_rng(99)
-    return pd.DataFrame(
-        {
-            "cpu_load": rng.uniform(0.55, 0.95, samples),
-            "network_load": rng.uniform(0.75, 1.0, samples),
-            "trust_score": rng.uniform(0.05, 0.45, samples),
-            "connection_rate": rng.uniform(0.7, 1.0, samples),
-        }
+def load_real_telemetry() -> tuple[pd.DataFrame, pd.DataFrame]:
+    project_root = Path(__file__).resolve().parents[2]
+    source_path = project_root / "data" / "real_security" / "df_Binary_FL_CICIoT2023.csv"
+    data = pd.read_csv(source_path).drop(columns=["Unnamed: 0"])
+
+    missing = [column for column in FEATURES + ["sub_label"] if column not in data]
+    if missing:
+        raise ValueError(f"Missing required dataset columns: {missing}")
+
+    data[FEATURES] = data[FEATURES].apply(pd.to_numeric, errors="coerce")
+    data = data.dropna(subset=FEATURES + ["sub_label"])
+    benign_data = data[data["sub_label"] == 0][FEATURES]
+    attack_data = data[data["sub_label"] != 0][FEATURES]
+
+    training_data = benign_data.sample(n=min(len(benign_data), 50000), random_state=42)
+    evaluation_data = pd.concat(
+        [benign_data.sample(n=min(len(benign_data), 10000), random_state=42),
+         attack_data.sample(n=min(len(attack_data), 10000), random_state=42)],
+        ignore_index=True,
     )
+    return training_data.reset_index(drop=True), evaluation_data.reset_index(drop=True)
 
 
 def main() -> None:
-    normal_data = generate_normal_telemetry(samples=1000)
-    attack_data = generate_attack_telemetry(samples=200)
+    normal_data, evaluation_data = load_real_telemetry()
 
     detector = ThreatDetector(random_state=42)
     detector.train(normal_data)
 
-    combined_data = pd.concat([normal_data, attack_data], ignore_index=True)
-    anomaly_scores = detector.predict_anomaly(combined_data)
-    tss_scores = detector.compute_tss(combined_data)
-
     normal_count = len(normal_data)
-    attack_count = len(attack_data)
+    evaluation_normal_count = min(len(normal_data), 10000)
+    attack_count = len(evaluation_data) - evaluation_normal_count
+    anomaly_scores = detector.predict_anomaly(evaluation_data)
     detected_anomalies = int((anomaly_scores > 0.5).sum())
-    detected_attack_anomalies = int((anomaly_scores[normal_count:] > 0.5).sum())
-    attack_detection_rate = detected_attack_anomalies / attack_count
-    average_normal_tss = float(tss_scores[:normal_count].mean())
-    average_attack_tss = float(tss_scores[normal_count:].mean())
+    detected_attack_anomalies = int((anomaly_scores[evaluation_normal_count:] > 0.5).sum())
+    attack_detection_rate = detected_attack_anomalies / attack_count if attack_count else 0.0
 
-    print(f"Normal samples: {normal_count}")
-    print(f"Attack samples: {attack_count}")
-    print(f"Detected anomalies: {detected_anomalies}")
+    print(f"Benign training samples: {normal_count}")
+    print(f"Benign evaluation samples: {evaluation_normal_count}")
+    print(f"Attack evaluation samples: {attack_count}")
+    print(f"Detected evaluation anomalies: {detected_anomalies}")
     print(f"Attack anomaly detection rate: {attack_detection_rate:.4f}")
-    print(f"Average TSS normal: {average_normal_tss:.4f}")
-    print(f"Average TSS attack: {average_attack_tss:.4f}")
 
-    model_path = "data/threat_detector.joblib"
-    detector.save(model_path)
+    model_path = Path(__file__).resolve().parents[2] / "data" / "threat_detector.joblib"
+    detector.save(str(model_path))
 
     loaded_detector = ThreatDetector()
-    loaded_detector.load(model_path)
-    loaded_detector.predict_anomaly(combined_data.head(5))
-    loaded_detector.compute_tss(combined_data.head(5))
+    loaded_detector.load(str(model_path))
+    loaded_detector.predict_anomaly(evaluation_data.head(5))
 
 
 if __name__ == "__main__":

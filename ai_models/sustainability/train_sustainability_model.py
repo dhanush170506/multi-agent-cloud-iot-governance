@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
+import ast
 import pandas as pd
 
 try:
@@ -11,27 +11,40 @@ except ImportError:
     from sustainability_predictor import SustainabilityPredictor
 
 
-def generate_synthetic_telemetry(sample_count: int = 1000) -> pd.DataFrame:
-    rng = np.random.default_rng(42)
-    return pd.DataFrame(
+def _mean_measurement(value: object) -> float:
+    if isinstance(value, str):
+        value = ast.literal_eval(value)
+    if hasattr(value, "__iter__") and not isinstance(value, (bytes, dict)):
+        values = pd.to_numeric(pd.Series(value), errors="coerce").dropna()
+        return float(values.mean()) if not values.empty else float("nan")
+    return float(value)
+
+
+def load_real_workloads() -> pd.DataFrame:
+    project_root = Path(__file__).resolve().parents[2]
+    source_path = project_root / "data" / "real_sustainability" / "job_table.parquet"
+    raw_data = pd.read_parquet(source_path)
+
+    data = pd.DataFrame(
         {
-            "cpu_load": rng.random(sample_count),
-            "memory_load": rng.random(sample_count),
-            "network_load": rng.random(sample_count),
+            "cpu_load": raw_data["num_cores_alloc"],
+            "memory_load": raw_data["mem_alloc"],
+            "network_load": raw_data["run_time"],
+            "power_consumption": raw_data["power_consumption"].map(_mean_measurement),
         }
     )
+    return data.apply(pd.to_numeric, errors="coerce").dropna().reset_index(drop=True)
 
 
 def main() -> None:
-    telemetry = generate_synthetic_telemetry(1000)
+    telemetry = load_real_workloads()
 
-    predictor = SustainabilityPredictor()
+    predictor = SustainabilityPredictor(electricity_price_per_kwh=0.12)
     predictor.train(telemetry)
 
     print(f"Energy validation MAE: {predictor.energy_validation_mae}")
-    print(f"Cost validation MAE: {predictor.cost_validation_mae}")
 
-    model_path = Path("data/sustainability_model.joblib")
+    model_path = Path(__file__).resolve().parents[2] / "data" / "sustainability_model.joblib"
     predictor.save(str(model_path))
 
     loaded_predictor = SustainabilityPredictor()
@@ -39,14 +52,14 @@ def main() -> None:
 
     samples = pd.DataFrame(
         {
-            "cpu_load": [0.2, 0.5, 0.8],
-            "memory_load": [0.3, 0.6, 0.4],
-            "network_load": [0.1, 0.7, 0.9],
+            "cpu_load": [32, 64, 128],
+            "memory_load": [1024, 4096, 8192],
+            "network_load": [3600, 18000, 86400],
         }
     )
     predictions = loaded_predictor.predict(samples)
-    print(f"Energy predictions: {predictions['energy_kwh']}")
-    print(f"Cost predictions: {predictions['cost_per_hour']}")
+    print(f"Sample energy predictions: {predictions['energy_kwh']}")
+    print(f"Sample estimated cost predictions: {predictions['cost_per_hour']}")
 
 
 if __name__ == "__main__":

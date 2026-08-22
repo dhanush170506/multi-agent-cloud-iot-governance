@@ -11,7 +11,16 @@ from sklearn.ensemble import IsolationForest
 class ThreatDetector:
     """Detect abnormal cloud-IoT telemetry and compute threat severity."""
 
-    FEATURES = ["cpu_load", "network_load", "trust_score", "connection_rate"]
+    FEATURES = [
+        "rst_count",
+        "ICMP",
+        "Min",
+        "AVG",
+        "IAT",
+        "Number",
+        "Variance",
+        "Weight",
+    ]
 
     def __init__(self, random_state: int = 42) -> None:
         self.random_state = random_state
@@ -38,6 +47,9 @@ class ThreatDetector:
 
     def compute_tss(self, data: pd.DataFrame) -> np.ndarray:
         anomaly_score = self.predict_anomaly(data)
+        if "trust_score" not in data:
+            return anomaly_score
+
         trust_degradation = 1 - data["trust_score"].to_numpy()
         tss = 0.7 * anomaly_score + 0.3 * trust_degradation
         return np.clip(tss, 0, 1)

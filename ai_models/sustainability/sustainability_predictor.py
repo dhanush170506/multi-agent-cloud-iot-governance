@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 
 class SustainabilityPredictor:
@@ -15,10 +16,11 @@ class SustainabilityPredictor:
 
     REQUIRED_FEATURES = ["cpu_load", "memory_load", "network_load"]
 
-    def __init__(self, random_state: int = 42) -> None:
+    def __init__(self, random_state: int = 42, electricity_price_per_kwh: float = 0.12) -> None:
         self.random_state = random_state
+        self.electricity_price_per_kwh = electricity_price_per_kwh
         self.energy_model: RandomForestRegressor | None = None
-        self.cost_model: RandomForestRegressor | None = None
+        self.feature_scaler = StandardScaler()
         self.energy_validation_mae: float | None = None
         self.cost_validation_mae: float | None = None
 
@@ -26,21 +28,14 @@ class SustainabilityPredictor:
         self._validate_features(data)
 
         features = data[self.REQUIRED_FEATURES]
-        energy_kwh = (
-            0.5 * data["cpu_load"]
-            + 0.3 * data["memory_load"]
-            + 0.2 * data["network_load"]
-        )
-        cost_per_hour = (
-            0.6 * energy_kwh
-            + 0.2 * data["cpu_load"]
-            + 0.2 * data["network_load"]
-        )
+        if "power_consumption" not in data.columns:
+            raise ValueError("Missing required target: power_consumption")
 
-        x_train, x_val, y_energy_train, y_energy_val, y_cost_train, y_cost_val = train_test_split(
+        energy_kwh = data["power_consumption"]
+
+        x_train, x_val, y_energy_train, y_energy_val = train_test_split(
             features,
             energy_kwh,
-            cost_per_hour,
             test_size=0.2,
             random_state=self.random_state,
         )
@@ -49,33 +44,31 @@ class SustainabilityPredictor:
             n_estimators=100,
             random_state=self.random_state,
         )
-        self.cost_model = RandomForestRegressor(
-            n_estimators=100,
-            random_state=self.random_state,
-        )
+        x_train_scaled = self.feature_scaler.fit_transform(x_train)
+        x_val_scaled = self.feature_scaler.transform(x_val)
 
-        self.energy_model.fit(x_train, y_energy_train)
-        self.cost_model.fit(x_train, y_cost_train)
+        self.energy_model.fit(x_train_scaled, y_energy_train)
 
-        energy_predictions = self.energy_model.predict(x_val)
-        cost_predictions = self.cost_model.predict(x_val)
+        energy_predictions = self.energy_model.predict(x_val_scaled)
 
         self.energy_validation_mae = float(mean_absolute_error(y_energy_val, energy_predictions))
-        self.cost_validation_mae = float(mean_absolute_error(y_cost_val, cost_predictions))
+        self.cost_validation_mae = None
 
     def predict(self, data: pd.DataFrame) -> dict:
         self._validate_features(data)
-        if self.energy_model is None or self.cost_model is None:
+        if self.energy_model is None:
             raise ValueError("Models are not trained or loaded.")
 
         features = data[self.REQUIRED_FEATURES]
+        features_scaled = self.feature_scaler.transform(features)
+        energy_predictions = np.asarray(self.energy_model.predict(features_scaled))
         return {
-            "energy_kwh": np.asarray(self.energy_model.predict(features)),
-            "cost_per_hour": np.asarray(self.cost_model.predict(features)),
+            "energy_kwh": energy_predictions,
+            "cost_per_hour": energy_predictions * self.electricity_price_per_kwh,
         }
 
     def save(self, path: str) -> None:
-        if self.energy_model is None or self.cost_model is None:
+        if self.energy_model is None:
             raise ValueError("Models are not trained.")
 
         model_path = Path(path)
@@ -83,7 +76,8 @@ class SustainabilityPredictor:
         joblib.dump(
             {
                 "energy_model": self.energy_model,
-                "cost_model": self.cost_model,
+                "feature_scaler": self.feature_scaler,
+                "electricity_price_per_kwh": self.electricity_price_per_kwh,
                 "energy_validation_mae": self.energy_validation_mae,
                 "cost_validation_mae": self.cost_validation_mae,
             },
@@ -93,7 +87,10 @@ class SustainabilityPredictor:
     def load(self, path: str) -> None:
         payload = joblib.load(path)
         self.energy_model = payload["energy_model"]
-        self.cost_model = payload["cost_model"]
+        self.feature_scaler = payload.get("feature_scaler", StandardScaler())
+        self.electricity_price_per_kwh = payload.get(
+            "electricity_price_per_kwh", self.electricity_price_per_kwh
+        )
         self.energy_validation_mae = payload.get("energy_validation_mae")
         self.cost_validation_mae = payload.get("cost_validation_mae")
 
