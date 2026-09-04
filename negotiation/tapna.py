@@ -35,7 +35,7 @@ def pareto_filter(actions, scores):
     return non_dominated_actions
 
 
-def compute_dynamic_weight(tss, tau=0.4, prev_wS=1/3, decay_lambda=0.3):
+def compute_dynamic_weight(tss, tau=0.15, prev_wS=1/3, decay_lambda=0.3):
     if tss > tau:
         wS = 1/3 + (2/3) * min(1, (tss - tau) / (1 - tau))
     else:

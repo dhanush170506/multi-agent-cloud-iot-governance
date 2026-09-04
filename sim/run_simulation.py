@@ -82,6 +82,8 @@ def main():
                 "wC": weights["wC"],
                 "CIGI": cigi,
                 "chosen_action": chosen_action["id"],
+                "chosen_action_type": chosen_action["type"],
+                "target_device_id": chosen_action["target_device_id"],
                 "avg_trust_score": telemetry["avg_trust_score"],
                 "avg_network_load": telemetry["avg_network_load"],
             }
