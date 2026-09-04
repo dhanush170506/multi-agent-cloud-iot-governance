@@ -17,19 +17,26 @@ from negotiation.cigi import compute_cigi
 from negotiation.tapna import run_tapna
 
 
+# Severity high enough to push every device across the attack condition:
+#   avg_trust_score < 0.7  OR  avg_network_load > 0.7
+# With 100 devices each shifted by 0.5 the averages move by 0.5, which
+# guarantees crossing both sides of the OR.
+_ATTACK_SEVERITY = 0.5
+
+
 def main():
     twin = DigitalTwin(100)
-    threat_schedule = set(schedule_random_threats(num_ticks=100))
     prev_wS = 1 / 3
     rows = []
 
     for tick in range(100):
         twin.tick()
 
-        if tick in threat_schedule:
-            device = random.choice(twin.devices)
-            severity = random.uniform(0.2, 0.6)
-            inject_threat(twin, device.id, severity)
+        # Controlled attack at tick 50: inject every device so the
+        # averaged telemetry clearly crosses the attack threshold.
+        if tick == 50:
+            for device in twin.devices:
+                inject_threat(twin, device.id, _ATTACK_SEVERITY)
 
         telemetry = generate_telemetry(twin)
         candidate_actions = generate_candidate_actions(twin)
@@ -75,6 +82,8 @@ def main():
                 "wC": weights["wC"],
                 "CIGI": cigi,
                 "chosen_action": chosen_action["id"],
+                "avg_trust_score": telemetry["avg_trust_score"],
+                "avg_network_load": telemetry["avg_network_load"],
             }
         )
 
