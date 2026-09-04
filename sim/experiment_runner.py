@@ -23,8 +23,8 @@ from negotiation.cigi import compute_cigi
 from negotiation.tapna import run_tapna
 
 
-SEED = 42
-NUM_TICKS = 200
+SEEDS = [42, 123, 456]
+NUM_TICKS = 100
 
 
 def _score_actions(actions, twin_state, resource_state):
@@ -43,9 +43,9 @@ def _score_actions(actions, twin_state, resource_state):
     return U_R_list, U_S_list, U_C_list
 
 
-def _run_strategy(strategy, threat_schedule):
-    random.seed(SEED)
-    np.random.seed(SEED)
+def _run_strategy(strategy, threat_schedule, seed):
+    random.seed(seed)
+    np.random.seed(seed)
 
     twin = DigitalTwin(100)
     prev_wS = 1 / 3
@@ -55,9 +55,9 @@ def _run_strategy(strategy, threat_schedule):
         twin.tick()
 
         if tick in threat_schedule:
-            device = random.choice(twin.devices)
-            severity = random.uniform(0.2, 0.6)
-            inject_threat(twin, device.id, severity)
+            for device in twin.devices:
+                inject_threat(twin, device.id, 0.5)
+            inject_threat(twin, device.id, 0.5)
 
         twin_state = generate_telemetry(twin)
         resource_state = twin.get_state()
@@ -103,9 +103,14 @@ def _run_strategy(strategy, threat_schedule):
                 "strategy": strategy,
                 "tick": tick,
                 "TSS": tss,
+                "wR": weights["wR"],
+                "wS": weights["wS"],
+                "wC": weights["wC"],
                 "CIGI": cigi,
                 "response_lag": 0,
                 "chosen_action": chosen_action["id"],
+                "chosen_action_type": chosen_action["type"],
+                "target_device_id": chosen_action["target_device_id"],
             }
         )
 
@@ -113,20 +118,24 @@ def _run_strategy(strategy, threat_schedule):
 
 
 def main():
-    random.seed(SEED)
-    np.random.seed(SEED)
-    threat_schedule = set(schedule_random_threats(num_ticks=NUM_TICKS))
+    threat_schedule = {50}
     rows = []
 
-    for strategy in [
-        "TAPNA",
-        "Greedy Cost",
-        "Greedy Latency",
-        "Static Weighted",
-    ]:
-        rows.extend(_run_strategy(strategy, threat_schedule))
+    for run_number, seed in enumerate(SEEDS, start=1):
+        random.seed(seed)
+        np.random.seed(seed)
 
-    pd.DataFrame(rows).to_csv("data/experiment_results.csv", index=False)
+        for strategy in [
+            "TAPNA",
+            "Greedy Cost",
+            "Greedy Latency",
+            "Static Weighted",
+        ]:
+            rows.extend(_run_strategy(strategy, threat_schedule, seed))
+
+    output_path = Path("data/experiments") / "experiment_results.csv"
+    pd.DataFrame(rows).to_csv(output_path, index=False)
+    print(f"Saved experiment results to {output_path}")
 
 
 if __name__ == "__main__":
