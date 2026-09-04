@@ -332,9 +332,9 @@ The comparative experiment (`sim/experiment_runner.py`) evaluates four governanc
 | Parameter | Value |
 |---|---|
 | Seeds | 42, 123, 456 |
-| Ticks per trial | 200 |
+| Ticks per trial | 100 |
 | Devices per trial | 100 |
-| Threat injection | Random, 5% probability per tick, severity Uniform(0.2, 0.6) |
+| Threat injection | Controlled attack at tick 50: all devices shifted by severity 0.5 |
 | Strategies compared | TAPNA, Static Weighted, Greedy Cost, Greedy Latency |
 
 ### Strategies
@@ -346,7 +346,7 @@ The comparative experiment (`sim/experiment_runner.py`) evaluates four governanc
 | **Greedy Cost** | Selects the action maximizing sustainability utility (U_C) alone |
 | **Greedy Latency** | Selects the action maximizing resource utility (U_R) alone |
 
-All four strategies share the same threat schedule within each seed. Results are averaged across the 3 seeds.
+All four strategies run against the same controlled attack at tick 50 within each seed. Results are averaged across the 3 seeds.
 
 ### Metrics Recorded
 
@@ -359,7 +359,7 @@ All four strategies share the same threat schedule within each seed. Results are
 
 ## Experimental Results
 
-Results are averaged over 200 ticks per strategy across 3 independent seeds.
+Results are averaged over 100 ticks per strategy across 3 independent seeds.
 
 ### Strategy Comparison
 
@@ -517,7 +517,7 @@ The four-strategy comparative experiment across 3 seeds (42, 123, 456):
 python sim/experiment_runner.py
 ```
 
-Results are saved to `data/experiments/experiment_results.csv`. All four strategies share the same threat schedule within each seed for fair comparison.
+Results are saved to `data/experiments/experiment_results.csv`. All four strategies run against the same controlled attack at tick 50 for fair comparison.
 
 ---
 
@@ -545,7 +545,7 @@ Tests cover Digital Twin behavior:
 streamlit run dashboard/app.py
 ```
 
-The dashboard reads `data/experiment_results.csv` and `data/tapna_log.csv`, displaying:
+The dashboard reads `data/experiments/experiment_results.csv` and `data/tapna_log.csv`, displaying:
 
 - **CIGI over time** by strategy (interactive Plotly line chart)
 - **TAPNA security weight (wS)** over time
@@ -561,7 +561,7 @@ streamlit run dashboard/app.py --server.address 0.0.0.0
 
 ## AWS Deployment
 
-The simulation is CPU-bound and runs within a single Python process. A `t3.medium` or equivalent EC2 instance is sufficient for the simulation and dashboard. The Streamlit dashboard can be exposed via a security group rule on port 8501.
+The simulation is CPU-bound and runs within a single Python process. A `t3.micro` or equivalent EC2 instance is sufficient for the simulation and dashboard. The Streamlit dashboard can be exposed via a security group rule on port 8501.
 
 AWS deployment is an operational convenience for running experiments and the dashboard remotely; it is not part of the core technical contribution.
 
@@ -623,7 +623,7 @@ This separation of concerns means individual models can be retrained, agents can
 | TAPNA | Implemented -- Pareto filtering, dynamic weighting (tau = 0.15), action selection |
 | CIGI | Implemented -- Weighted governance index |
 | ML Integration | Implemented -- Three trained model artifacts with lazy loading |
-| Experimental Validation | Implemented -- 4 strategies, 3 seeds, 200 ticks per trial |
+| Experimental Validation | Implemented -- 4 strategies, 3 seeds, 100 ticks per trial |
 | Controlled Attack Scenario | Implemented -- 100-tick simulation, attack at tick 50 |
 | Dashboard | Implemented -- Streamlit + Plotly, interactive visualization |
 | Tests | Implemented -- 3 unit tests, all passing |
