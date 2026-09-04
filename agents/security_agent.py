@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ai_models.security.threat_detector import ThreatDetector
@@ -7,6 +8,54 @@ from ai_models.security.threat_detector import ThreatDetector
 
 _MODEL_PATH = Path(__file__).resolve().parents[1] / "data" / "threat_detector.joblib"
 _THREAT_DETECTOR = None
+
+# ---------------------------------------------------------------------------
+# CICIoT2023 central values derived from the training dataset statistics.
+# Normal = benign traffic mean; Attack = attack-traffic mean.
+# ---------------------------------------------------------------------------
+_NORMAL_CENTRAL: dict[str, float] = {
+    "rst_count": 14.0,
+    "ICMP": 0.168,
+    "Min": 89.5,
+    "AVG": 113.0,
+    "IAT": 83_210_000.0,
+    "Number": 9.5,
+    "Variance": 0.078,
+    "Weight": 141.5,
+}
+
+_ATTACK_CENTRAL: dict[str, float] = {
+    "rst_count": 1070.0,
+    "ICMP": 0.0,
+    "Min": 180.0,
+    "AVG": 618.0,
+    "IAT": 83_320_000.0,
+    "Number": 9.5,
+    "Variance": 0.861,
+    "Weight": 141.5,
+}
+
+# Realistic clip ranges derived from the CICIoT2023 dataset min/max.
+_CLIP_MIN: dict[str, float] = {
+    "rst_count": 0.0,
+    "ICMP": 0.0,
+    "Min": 42.0,
+    "AVG": 42.0,
+    "IAT": 0.0,
+    "Number": 1.5,
+    "Variance": 0.0,
+    "Weight": 2.5,
+}
+_CLIP_MAX: dict[str, float] = {
+    "rst_count": 9_332.0,
+    "ICMP": 1.0,
+    "Min": 3_252.0,
+    "AVG": 4_060.0,
+    "IAT": 167_640_000.0,
+    "Number": 15.0,
+    "Variance": 1.0,
+    "Weight": 245.0,
+}
 
 
 def _get_threat_detector() -> ThreatDetector:
@@ -25,23 +74,39 @@ def _clip01(value: float) -> float:
 
 
 def _telemetry_frame(twin_state) -> pd.DataFrame:
-    if isinstance(twin_state, pd.DataFrame):
-        telemetry = twin_state.copy()
-        if "connection_rate" not in telemetry.columns:
-            telemetry["connection_rate"] = telemetry["network_load"]
-        return telemetry[ThreatDetector.FEATURES]
+    """Generate the 8 CICIoT2023 security features from Digital Twin state.
 
-    network_load = twin_state.get("network_load", twin_state.get("avg_network_load", 0))
-    telemetry = {
-        "cpu_load": twin_state.get("cpu_load", twin_state.get("avg_cpu_load", 0)),
-        "network_load": network_load,
-        "trust_score": twin_state.get("trust_score", twin_state.get("avg_trust_score", 1)),
-        "connection_rate": twin_state.get(
-            "connection_rate",
-            twin_state.get("avg_connection_rate", network_load),
-        ),
-    }
-    return pd.DataFrame([telemetry], columns=ThreatDetector.FEATURES)
+    Uses an explicit attack condition derived from the Digital Twin:
+        attack = avg_trust_score < 0.7  OR  avg_network_load > 0.7
+
+    Normal telemetry uses the benign central values; attack telemetry
+    uses the attack central values.  Small random noise is added for
+    realism and clipped to the dataset's observed min/max ranges.
+
+    ``trust_score`` is kept as an extra column so ``compute_tss()``
+    can combine anomaly severity with trust degradation.
+    """
+    if isinstance(twin_state, pd.DataFrame):
+        series = twin_state.mean() if len(twin_state) > 1 else twin_state.iloc[0]
+        avg_trust = float(series.get("avg_trust_score", series.get("trust_score", 1.0)))
+        avg_network = float(series.get("avg_network_load", series.get("network_load", 0.0)))
+    else:
+        avg_trust = float(twin_state.get("avg_trust_score", twin_state.get("trust_score", 1.0)))
+        avg_network = float(twin_state.get("avg_network_load", twin_state.get("network_load", 0.0)))
+
+    attack = avg_trust < 0.7 or avg_network > 0.7
+    central = _ATTACK_CENTRAL if attack else _NORMAL_CENTRAL
+
+    rng = np.random.default_rng()
+    features: dict[str, float] = {}
+    for key in ThreatDetector.FEATURES:
+        value = central[key] + rng.normal(0, abs(central[key]) * 0.05 + 0.01)
+        features[key] = float(np.clip(value, _CLIP_MIN[key], _CLIP_MAX[key]))
+
+    # Keep trust_score so compute_tss() can blend anomaly + trust degradation.
+    features["trust_score"] = avg_trust
+
+    return pd.DataFrame([features])
 
 
 def score_security(action: dict, twin_state: dict) -> float:
